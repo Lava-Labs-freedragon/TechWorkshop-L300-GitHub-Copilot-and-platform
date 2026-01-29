@@ -6,10 +6,5 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dc03a210-db2d-4c5a-845d-b22d181990f5</UserSecretsId>
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="System.Text.Encodings.Web" Version="4.5.1" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="2.1.7" />
-  </ItemGroup>
 
 </Project>
