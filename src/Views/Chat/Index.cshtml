@@ -1,0 +1,79 @@
+@{
+    ViewData["Title"] = "Chat";
+}
+
+<div class="container mt-4">
+    <h1 class="mb-3">Chat</h1>
+    <p class="text-muted">Ask questions about products and pricing.</p>
+
+    <div class="mb-3">
+        <label for="chatTranscript" class="form-label">Conversation</label>
+        <textarea id="chatTranscript" class="form-control" rows="8" readonly></textarea>
+    </div>
+
+    <div class="input-group mb-3">
+        <input id="chatMessage" type="text" class="form-control" placeholder="Type your message..." aria-label="Message">
+        <button id="chatSend" class="btn btn-primary" type="button">Send</button>
+    </div>
+
+    <div id="chatStatus" class="small text-muted"></div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const messageInput = document.getElementById('chatMessage');
+            const sendButton = document.getElementById('chatSend');
+            const transcript = document.getElementById('chatTranscript');
+            const status = document.getElementById('chatStatus');
+
+            function appendLine(label, text) {
+                const line = `${label}: ${text}`;
+                transcript.value = transcript.value ? `${transcript.value}\n${line}` : line;
+                transcript.scrollTop = transcript.scrollHeight;
+            }
+
+            async function sendMessage() {
+                const message = messageInput.value.trim();
+                if (!message) {
+                    return;
+                }
+
+                appendLine('You', message);
+                messageInput.value = '';
+                status.textContent = 'Sending...';
+                sendButton.disabled = true;
+
+                try {
+                    const response = await fetch('/Chat/Send', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message })
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok) {
+                        const error = data && data.error ? data.error : 'Request failed.';
+                        appendLine('System', error);
+                    } else {
+                        appendLine('Phi-4', data.reply || '');
+                    }
+                } catch (err) {
+                    appendLine('System', 'Network error while sending message.');
+                } finally {
+                    status.textContent = '';
+                    sendButton.disabled = false;
+                    messageInput.focus();
+                }
+            }
+
+            sendButton.addEventListener('click', sendMessage);
+            messageInput.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    sendMessage();
+                }
+            });
+        })();
+    </script>
+}
