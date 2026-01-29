@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json;
+using Azure.Core;
+using Azure.Identity;
 using Microsoft.Extensions.Options;
 
 namespace ZavaStorefront.Services
@@ -9,38 +11,63 @@ namespace ZavaStorefront.Services
         private readonly HttpClient _httpClient;
         private readonly FoundryChatOptions _options;
         private readonly ILogger<FoundryChatService> _logger;
+        private readonly TokenCredential _credential;
 
         public FoundryChatService(HttpClient httpClient, IOptions<FoundryChatOptions> options, ILogger<FoundryChatService> logger)
         {
             _httpClient = httpClient;
             _options = options.Value;
             _logger = logger;
+            _credential = new DefaultAzureCredential();
         }
 
         public async Task<string> SendAsync(string message, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(_options.Endpoint) ||
-                string.IsNullOrWhiteSpace(_options.ApiKey) ||
                 string.IsNullOrWhiteSpace(_options.DeploymentName))
             {
                 throw new InvalidOperationException("Foundry configuration is missing.");
             }
 
-            var endpoint = _options.Endpoint.TrimEnd('/');
-            var url = $"{endpoint}/openai/deployments/{_options.DeploymentName}/chat/completions?api-version={_options.ApiVersion}";
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Headers.Add("api-key", _options.ApiKey);
-
-            var payload = new
+            var endpoint = _options.Endpoint.Trim();
+            if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var endpointUri))
             {
-                messages = new[]
+                throw new InvalidOperationException("Foundry endpoint is invalid.");
+            }
+
+            var usesModelsEndpoint = endpointUri.AbsolutePath.Contains("/models/", StringComparison.OrdinalIgnoreCase)
+                || endpointUri.AbsolutePath.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase);
+
+            var requestUri = usesModelsEndpoint
+                ? BuildEndpointUri(endpointUri, _options.ApiVersion)
+                : new Uri($"{endpoint.TrimEnd('/')}/openai/deployments/{_options.DeploymentName}/chat/completions?api-version={_options.ApiVersion}");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, requestUri);
+            var token = await _credential.GetTokenAsync(
+                new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" }),
+                cancellationToken);
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
+
+            object payload = usesModelsEndpoint
+                ? new
                 {
-                    new { role = "user", content = message }
-                },
-                temperature = 0.2,
-                max_tokens = 256
-            };
+                    model = _options.DeploymentName,
+                    messages = new[]
+                    {
+                        new { role = "user", content = message }
+                    },
+                    temperature = 0.2,
+                    max_tokens = 256
+                }
+                : new
+                {
+                    messages = new[]
+                    {
+                        new { role = "user", content = message }
+                    },
+                    temperature = 0.2,
+                    max_tokens = 256
+                };
 
             request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 
@@ -61,6 +88,16 @@ namespace ZavaStorefront.Services
                 .GetString();
 
             return reply ?? string.Empty;
+        }
+
+        private static Uri BuildEndpointUri(Uri endpointUri, string apiVersion)
+        {
+            if (!string.IsNullOrWhiteSpace(endpointUri.Query))
+            {
+                return endpointUri;
+            }
+
+            return new Uri($"{endpointUri.AbsoluteUri}?api-version={apiVersion}");
         }
     }
 }
